@@ -50,13 +50,14 @@ def prepare_text(text):
     return text
 
 
-def _plot_data(out_df: pd.DataFrame) -> bool:
+def _plot_data(lang_df: pd.DataFrame) -> bool:
+    
     """
     This function plot evaluated data to assess the dependence of the predicted 
     duration of the phrase on the ground truth.
 
     Args:
-        out_df (pd.DataFrame): dataframe with all necessery information to make
+        lang_df (pd.DataFrame): dataframe with all necessery information to make
         plot. 
 
     Returns:
@@ -66,68 +67,63 @@ def _plot_data(out_df: pd.DataFrame) -> bool:
     # Creating folder to save plot results (graph and data)
     os.makedirs("plots", exist_ok=True)
     summary = []
+    language = lang_df['lang_name'][0]
+    speaker = lang_df['lang_speaker'][0]
+    lang_code = lang_df['lang_code'][0]
 
-    for language, lang_df in out_df.groupby("lang_name"):
+    fig, axs = plt.subplots(3, 1, figsize=(6, 9))
+    fig.suptitle(f"{language}. Duration prediction.")
+    error = lang_df["t_ratio"].apply(lambda x : abs(x) * 100.0)
+    mape = mean_absolute_percentage_error(lang_df['t_true'].values, 
+                                            lang_df['t_pred'].values)
+    r2 = r2_score(lang_df['t_true'].values, lang_df['t_pred'].values)
 
-        fig, axs = plt.subplots(3, 1, figsize=(6, 9))
-        fig.suptitle(f"{language}. Duration prediction.")
-        error = lang_df["t_ratio"].apply(lambda x : abs(x) * 100.0)
-        mape = mean_absolute_percentage_error(lang_df['t_true'].values, 
-                                                lang_df['t_pred'].values)
-        r2 = r2_score(lang_df['t_true'].values, lang_df['t_pred'].values)
+    # TODO remake summary logic
+    summary.append((
+        language,
+        error.mean(),
+        error.max(),
+        error.min(),
+        error.std(),
+        mape,
+        r2
+    ))
 
-        summary.append((
-            language,
-            error.mean(),
-            error.max(),
-            error.min(),
-            error.std(),
-            mape,
-            r2
-        ))
+    # Get data
+    n = lang_df["n_chars"]
+    t_true = lang_df["t_true"]
+    t_pred = lang_df["t_pred"]
 
-        for i, (speaker, spk_df) in enumerate(lang_df.groupby("lang_speaker")):
+    # Plot dependencies
+    axs[0].set_title(f"Speaker: {speaker}\nDuration prediction.")
+    axs[0].scatter(n, t_true, label=f"t_true")
+    axs[0].scatter(n, t_pred, label=f"t_pred")
+    axs[0].set_ylabel("time, seconds")
+    
+    # Plot difference
+    t_diff = lang_df["t_diff"]
+    axs[1].set_title(f"Difference (t_true - t_pred).")
+    axs[1].scatter(n, t_diff, label=f"t_diff")
+    axs[1].set_ylabel("time difference, seconds")
 
-            # Get data
-            n = spk_df["n_chars"]
-            t_true = spk_df["t_true"]
-            t_pred = spk_df["t_pred"]
+    # Plor error
+    t_ratio = lang_df["t_ratio"]
+    t_ratio = t_ratio.apply(lambda x : abs(x) * 100.0)
+    axs[2].set_title(f"Error (t_true - t_pred) / t_true).")
+    axs[2].scatter(n, t_ratio, label=f"t_ratio")
 
-            # Plot
-            axs[0].grid()
-            axs[0].set_title(f"Speaker: {speaker}\nDuration prediction.")
-            axs[0].scatter(n, t_true, label=f"t_true")
-            axs[0].scatter(n, t_pred, label=f"t_pred")
-            axs[0].set_ylabel("time, seconds")
-            axs[0].legend()
+    axs[2].set_ylabel("error, %")
+    axs[2].set_xlabel("number of phonemes")
 
-        for i, (speaker, spk_df) in enumerate(lang_df.groupby("lang_speaker")):
-
-            t_diff = spk_df["t_diff"]
-            axs[1].grid()
-            axs[1].set_title(f"Difference (t_true - t_pred).")
-            axs[1].scatter(n, t_diff, label=f"t_diff")
-            axs[1].legend()
-            axs[1].set_ylabel("time difference, seconds")
-
-        for i, (speaker, spk_df) in enumerate(lang_df.groupby("lang_speaker")):
-
-            t_ratio = spk_df["t_ratio"]
-            t_ratio = t_ratio.apply(lambda x : abs(x) * 100.0)
-            axs[2].grid()
-            axs[2].set_title(f"Error (t_true - t_pred) / t_true).")
-            axs[2].scatter(n, t_ratio, label=f"t_ratio")
-            axs[2].legend()
-
-            axs[2].set_ylabel("error, %")
-            axs[2].set_xlabel("number of phonemes")
-
-        for ax in axs.flat:
-            ax.label_outer()
-
-        plt.savefig(f"plots/summary_multilingual_{lang_df['lang_code']}.png")
-        plt.cla()
-        plt.clf()
+    for ax in axs.flat:
+        ax.label_outer()
+        ax.grid()
+        ax.legend()
+        
+    # TODO rename fig
+    plt.savefig(f"plots/summary_multilingual_{lang_code}.png")
+    plt.cla()
+    plt.clf()
 
     summary_df = pd.DataFrame(
         data=summary,
@@ -142,7 +138,7 @@ def _plot_data(out_df: pd.DataFrame) -> bool:
         ),
     )
     os.makedirs('evaluate/error_csv', exist_ok=True)
-    summary_df.to_csv(f"evaluate/error_csv/out_summary_{lang_df['lang_code']}.csv")
+    summary_df.to_csv(f"evaluate/error_csv/out_summary_{lang_code}.csv")
 
     return True
 
