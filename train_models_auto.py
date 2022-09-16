@@ -28,12 +28,23 @@ LANG_DICT["transliterate"] = LANG_DICT["transliterate"].isna().apply(lambda x : 
 LANG_DICT = LANG_DICT.dropna()
 
 
-def tts(text, speaker, out_file=None):
+def tts(text: str, speaker:  str, out_file: str = None) -> bool:
+
+    """
+    This function generate wav audio file using google TTS engine
+
+    Args:
+        text (str): text to synthesize
+        speaker (str): speaker code for google TTS engine
+
+    Returns:
+        bool: True if TTS finished successsfuly
+    """
 
     google_tts_syntesize(text=text, voice=speaker)
 
     if os.path.exists("./tmp.wav"):
-        # move file to needed place if needed
+        
         if out_file is None:
             out_file = "./tmp.wav"
         else:
@@ -42,7 +53,18 @@ def tts(text, speaker, out_file=None):
     else:
         return False
 
-def prepare_text(text):
+def prepare_text(text: str) -> str:
+
+    """
+    This function remove IGNORE_CHARS from text
+
+    Args:
+        text (str): text to clean up
+
+    Returns:
+        str: cleaned text
+    """
+
     for char in IGNORE_CHARS:
         text = text.replace(char, "")
     text = text.lower()
@@ -108,7 +130,25 @@ def _plot_data(lang_df: pd.DataFrame) -> bool:
 
     return True
 
-def _eval_data(model, lang_name, lang_code, lang_speaker, do_translit, lang_ipa, lang_translate):
+def _eval_data(model, lang_name: str, lang_code: str, lang_speaker: str, 
+                do_translit: bool, lang_ipa: str, lang_translate: str) -> pd.DataFrame:
+    """
+    This function evaluates trained data using test-set
+
+    Args:
+        model: model to make predict
+        lang_name (str): language name
+        lang_code (str): language code
+        lang_speaker (str): speaker code
+        do_translit (bool): True or False
+        lang_ipa (str): language code for ipa (eSpeak)
+        lang_translate (str): language code for transliteration
+
+    Returns:
+        pd.DataFrame: dataframe with evaluation data
+    """
+
+    process = 'evaluate'
 
     # Stage 3: Evaluate  
     print("Evaluate...")
@@ -119,42 +159,22 @@ def _eval_data(model, lang_name, lang_code, lang_speaker, do_translit, lang_ipa,
 
     # Create folder to save evaluation data
     speaker_dir_eval = f"data/evaluate_backup/audio/{lang_code}/{lang_speaker}"
-    
-    
-    os.makedirs(speaker_dir_eval, exist_ok=True)
 
-    with open(lang_text_file, "r") as f:
-        phrases = f.readlines()
+    out_df = _prepare_data(process, speaker_dir_eval, lang_text_file, lang_translate, 
+                                lang_speaker, do_translit, lang_ipa)
 
-    for i, text in tqdm.tqdm(enumerate(phrases), total=len(phrases)):
-        
-        text = prepare_text(text)
-        out_file = os.path.join(speaker_dir_eval, f"{str(i).zfill(4)}.wav")
-        
-        if os.path.exists(out_file):
-            success = True
-        else:
-            success = tts(text, lang_speaker, out_file=out_file)
+    for i, row in out_df.iterrows():
 
-        if success:
-            global _CHARACTERS_COUNTER
-            _CHARACTERS_COUNTER += len(text)
-            if do_translit:
-                transliteration = transliterate(text, lang_translate)
-                text_ipa = convert_to_ipa(transliteration, lang="en")
-            else:
-                text_ipa = convert_to_ipa(text, lang=lang_ipa)
+        n_chars = row['n_symbols']
 
-            n_chars = len(text_ipa)
+        t_true = get_audio_length(row['wav_path'])
+        t_pred = model.predict([[n_chars]])[0]
+        t_diff = t_true - t_pred
+        t_ratio = t_diff / t_true
 
-            t_true = get_audio_length(out_file)
-            t_pred = model.predict([[n_chars]])[0]
-            t_diff = t_true - t_pred
-            t_ratio = t_diff / t_true
-
-            eval_list.append(
-                (lang_name, lang_code, lang_speaker, t_true, t_pred, t_diff, t_ratio, n_chars, text, text_ipa)
-            )
+        eval_list.append(
+            (lang_name, lang_code, lang_speaker, t_true, t_pred, t_diff, t_ratio, n_chars, row['text'], row['transcription'])
+        )
 
     eval_df = pd.DataFrame(
         data=eval_list,
@@ -171,7 +191,6 @@ def _eval_data(model, lang_name, lang_code, lang_speaker, do_translit, lang_ipa,
                                             eval_df['t_pred'].values)
     r2 = r2_score(eval_df['t_true'].values, eval_df['t_pred'].values)
 
-    # TODO remake summary logic
     summary.append((
         lang_name,
         error.mean(),
@@ -199,7 +218,34 @@ def _eval_data(model, lang_name, lang_code, lang_speaker, do_translit, lang_ipa,
 
     return eval_df
 
-def _train_data(out_df, lang_code):
+def _train_data(lang_code: str,  lang_translate: str, lang_speaker: str,
+                do_translit: str, lang_ipa: str) -> LinearRegression():
+    """
+    This function train LinearRegression model using train set
+
+    Args:
+        lang_code (str): language code
+        lang_translate (str): language code for tranliteration part
+        lang_speaker (str): language speaker code
+        do_translit (str): True or False
+        lang_ipa (str): language code for ipa (eSpeak)
+
+    Returns:
+        model (LinearRegression): Linear regression model
+    """
+    process = 'train'
+    
+    train_set_text_file = f'dataset/train-set/{lang_code}.txt'
+
+    speaker_dir = f"data/train_data_backup/audio/{lang_code}/{lang_speaker}"
+
+    out_df = _prepare_data(process, speaker_dir, train_set_text_file, lang_translate, 
+                                lang_speaker, do_translit, lang_ipa)
+        
+    out_train_data_path = f'data/train_data_backup/gen_data_csv/{lang_code}'
+    os.makedirs(out_train_data_path, exist_ok=True)
+    train_data_filename = out_train_data_path + f"/gen_data_{lang_code}.csv"
+    out_df.to_csv(train_data_filename)
 
     print("Train model...")
 
@@ -217,109 +263,56 @@ def _train_data(out_df, lang_code):
 
     return model
 
-def _prepare_data(speaker_dir, train_data_file, process, lang_translate, lang_speaker, do_translit, lang_ipa):
+def _prepare_data(process: str, audio_dir: str, data_file: str,
+                lang_translate: str, lang_speaker: str, do_translit: bool,
+                lang_ipa: str) -> pd.DataFrame:
 
-    os.makedirs(speaker_dir, exist_ok=True)
+    """
+    This function prepare data for train and evaluate
+
+    Args:
+        process (str): current process
+        audio_dir (str): directory to save audio
+        data_file (str): file w train or test data
+        lang_translate (str): language code to transliteration
+        lang_speaker (str): speaker code for TTS
+        do_translit (bool): True or False
+        lang_ipa (str): language code for IPA 
+
+    Returns:
+        pd.DataFrame: dataframe with prepared data
+    """
+
+    os.makedirs(audio_dir, exist_ok=True)
     out_data = []
 
-    with open(train_data_file, "r") as f:
+    with open(data_file, "r") as f:
         train_phrases = f.readlines()
 
     for i, text in tqdm.tqdm(enumerate(train_phrases), total=len(train_phrases)):
         
         text = prepare_text(text)
-        wav_path = os.path.join(speaker_dir, f"{str(i).zfill(4)}.wav")
+        wav_path = os.path.join(audio_dir, f"{str(i).zfill(4)}.wav")
 
         if os.path.exists(wav_path):
             success = True
         else:
-            if process != "train":
-                translated_text = translate(text, lang_translate, 'en')
-                translated_text = prepare_text(translated_text)
-                text = translated_text
             success = tts(text, lang_speaker, out_file=wav_path)
-
-        if success:
             global _CHARACTERS_COUNTER
             _CHARACTERS_COUNTER += len(text)
 
+        if success:
+    
             if do_translit:
-                # Transliterate text
                 transliteration = transliterate(text, lang_translate)
-                # Convert to IPA
                 ipa_text = convert_to_ipa(transliteration, lang="en")
             else:
-                # Convert to IPA
                 ipa_text = convert_to_ipa(text, lang=lang_ipa)
 
             seconds = get_audio_length(wav_path)
 
-            # Save data into list
-            out_data.append((seconds, len(ipa_text), ipa_text, text))
-    return out_data
-
-def _prepare_train_data(lang_code, lang_speaker, lang_translate, do_translit,
-                        lang_ipa):
-
-    
-
-    # Create folder for trained data
-    out_train_data_path = f'data/train_data_backup/gen_data_csv/{lang_code}'
-    os.makedirs(out_train_data_path, exist_ok=True)
-    train_data_filename = out_train_data_path + f"/gen_data_{lang_code}.csv"
-    
-    # Stage 1: Prepare Data 
-
-    print("Prepare data...")
-
-    # Read dataset
-    df = pd.read_csv(_DATASET_PATH)
-
-    out_data = []
-    # TODO lang_code insert
-    train_data_file = f'dataset/train/set/en-US.txt'
-
-    speaker_dir = f"data/train_data_backup/audio/{lang_code}/{lang_speaker}"
-    os.makedirs(speaker_dir, exist_ok=True)
-
-    with open(train_data_file, "r") as f:
-        train_phrases = f.readlines()
-
-    for i, text in tqdm.tqdm(enumerate(train_phrases), total=len(train_phrases)):
-        
-        text = prepare_text(text)
-        wav_path = os.path.join(speaker_dir, f"{str(i).zfill(4)}.wav")
-
-        if os.path.exists(wav_path):
-            success = True
-        else:
-            translated_text = translate(text, lang_translate, 'en')
-            translated_text = prepare_text(translated_text)
-            success = tts(translated_text, lang_speaker, out_file=wav_path)
-
-        if success:
-            global _CHARACTERS_COUNTER
-            _CHARACTERS_COUNTER += len(translated_text)
-
-            seconds = get_audio_length(wav_path)
-
-            if do_translit:
-                # Transliterate text
-                transliteration = transliterate(translated_text, lang_translate)
-                # Convert to IPA
-                ipa_text = convert_to_ipa(transliteration, lang="en")
-            else:
-                # Convert to IPA
-                ipa_text = convert_to_ipa(translated_text, lang=lang_ipa)
-
-            # Save data into list
-            out_data.append((seconds, len(ipa_text), ipa_text, text, translated_text))
-
-        
-    # Create df and sace data
-    out_df = pd.DataFrame(out_data, columns=("seconds", "n_symbols", "transcription", "text", "translated_texts"))
-    out_df.to_csv(train_data_filename)
-
+            out_data.append((seconds, len(ipa_text), ipa_text, text, wav_path))
+    out_df = pd.DataFrame(out_data, columns=("seconds", "n_symbols", "transcription", "text", "wav_path"))
     return out_df
 
 def main():
@@ -341,7 +334,6 @@ def main():
         lang_speaker = row["google_speaker"]
         do_translit= row["transliterate"]
         lang_translate = row["language_translate"]
-        lang_params_dict = row.to_dict()
 
         # Check if lang in models list
         if lang_code not in lang_to_make_model:
@@ -351,24 +343,23 @@ def main():
         print(f'Processed: {lang_name}, {lang_code}, {lang_speaker}')
         print(f'Need transliteration? -> {do_translit}')
 
-        
-        out_df = _prepare_train_data(lang_code=lang_code,
-                                    lang_speaker=lang_speaker,
-                                    lang_translate=lang_translate,
-                                    do_translit=do_translit,
-                                    lang_ipa=lang_ipa
-        )
+        # Stage 1: Train
+        model = _train_data(lang_code=lang_code,
+                            lang_translate=lang_translate,
+                            lang_speaker=lang_speaker,
+                            do_translit=do_translit,
+                            lang_ipa=lang_ipa)
 
-        # Stage 2: Train
-        model = _train_data(out_df, lang_code=lang_code)
-
-        # Stage 3: Evaluate
-        eval_df = _eval_data(model=model, lang_name=lang_name, 
-                            lang_code=lang_code, lang_speaker=lang_speaker,
-                            do_translit=do_translit, lang_ipa=lang_ipa, 
+        # Stage 2: Evaluate
+        eval_df = _eval_data(model=model,
+                            lang_name=lang_name,
+                            lang_code=lang_code,
+                            lang_speaker=lang_speaker,
+                            do_translit=do_translit,
+                            lang_ipa=lang_ipa,
                             lang_translate=lang_translate)
 
-        # Stage 4: Plot Results
+        # Stage 3: Plot Results
         _plot_data(eval_df)
         
         # Checking whether the number of used symbols does not exceed 
