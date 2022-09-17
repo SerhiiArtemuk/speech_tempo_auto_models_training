@@ -3,18 +3,17 @@ from requests.structures import CaseInsensitiveDict
 import base64
 import subprocess
 import os
+from config import Config
 
-# _API_KEY = "AIzaSyAKVOK650Yv8zPbSWK_6AOtGWBmVhHsYRE" # Vitalii
-# _API_KEY = "AIzaSyDCpAWVfuYexA-zfq6cQZ3ijkb3uVLnkio" # Serhii
-_API_KEY = "AIzaSyB6CVDnSSBvmxWn046Ol3ZkJKMenmf_5u0" # Unidatalab Serhii
-_API_NAME = "X-Goog-Api-Key"
+_API_KEY = Config.TTS_API_KEY
+_API_NAME = Config.TTS_API_NAME
 
 def google_tts_syntesize(text, voice, lang_code='en-US'):
     
     url = "https://texttospeech.googleapis.com/v1beta1/text:synthesize"
     headers = CaseInsensitiveDict()
     
-    headers["X-Goog-Api-Key"] = _API_KEY
+    headers[_API_NAME] = _API_KEY
     headers["Content-Type"] = "application/json; charset=UTF-8"
     body = {
         "input":{

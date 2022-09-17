@@ -4,6 +4,7 @@ import shutil
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import pickle
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
 import pickle as pkl
@@ -13,17 +14,17 @@ from tools.convert_to_ipa import convert_to_ipa
 from tools.get_audio_length import get_audio_length
 from tools.transliterate import transliterate, translate
 from google_tts import google_tts_syntesize
+from config import Config
 
 
-_DATASET_PATH = Path("/home/pc/Dev/train-clean-100/dataset_v2.csv")
-_N_SAMPLES = 600 
-_OUT_OVERWRITE = False
 _CHARACTERS_COUNTER = 0
 _FREE_TTS_CHARACTERS = 1_000_000
 
 IGNORE_CHARS = "?.¿!-?;:,"
 
-LANG_DICT = pd.read_csv("vidby.csv")
+ROOT = Config.ROOT
+
+LANG_DICT = pd.read_csv(os.path.join(ROOT, 'look_up.csv'))
 LANG_DICT["transliterate"] = LANG_DICT["transliterate"].isna().apply(lambda x : not(x))
 LANG_DICT = LANG_DICT.dropna()
 
@@ -319,13 +320,6 @@ def main():
 
     global _CHARACTERS_COUNTER
 
-    done_models = ['zh-CN', 'fr-FR', 'ja-JP', 'af-ZA', 'ca-ES', 'da-DK', 
-    'de-DE', 'fr-CA', 'gu-IN', 'hi-IN', 'id-ID', 'ko-KR', 'lv-LV', 'ml-IN', 
-    'pt-BR', 'pt-PT', 'sr-RS', 'sv-SE', 'ta-IN', 'te-IN', 'th-TH', 'vi-VN',
-    'yue-HK']
-
-    lang_to_make_model = ['zh-CN']
-
     for idx, row in LANG_DICT.iterrows():
 
         lang_ipa = row["language_ipa"]
@@ -336,7 +330,7 @@ def main():
         lang_translate = row["language_translate"]
 
         # Check if lang in models list
-        if lang_code not in lang_to_make_model:
+        if lang_code not in Config.LANGUAGE_TO_TRAIN:
             print(f'Lang code {lang_code} not in models list. Continue ...')
             continue
 
@@ -344,11 +338,28 @@ def main():
         print(f'Need transliteration? -> {do_translit}')
 
         # Stage 1: Train
-        model = _train_data(lang_code=lang_code,
-                            lang_translate=lang_translate,
-                            lang_speaker=lang_speaker,
-                            do_translit=do_translit,
-                            lang_ipa=lang_ipa)
+        if lang_code not in Config.BASELINE_LANGS:
+
+            model = _train_data(lang_code=lang_code,
+                                lang_translate=lang_translate,
+                                lang_speaker=lang_speaker,
+                                do_translit=do_translit,
+                                lang_ipa=lang_ipa) 
+        else:
+
+            if os.path.exists(Config.DEFAULT_MODEL_PATH):
+
+                with open(Config.DEFAULT_MODEL_PATH, 'rb') as f_model:
+                    model = pickle.load(f_model)
+            else:
+                
+                baseline_row = LANG_DICT[LANG_DICT['language_code'] == Config.DEFAULT_MODEL_LANG_CODE]
+                
+                model = _train_data(lang_code=baseline_row['language_code'].values[0],
+                                lang_translate=baseline_row['language_translate'].values[0],
+                                lang_speaker=baseline_row['google_speaker'].values[0],
+                                do_translit=False,
+                                lang_ipa=baseline_row['language_ipa'].values[0])
 
         # Stage 2: Evaluate
         eval_df = _eval_data(model=model,
