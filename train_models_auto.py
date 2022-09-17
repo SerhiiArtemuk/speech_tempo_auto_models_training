@@ -328,8 +328,7 @@ def main():
                                 do_translit=do_translit,
                                 lang_ipa=lang_ipa) 
         else:
-            logger.info(f'Lang {lang_name} ({lang_code}) is use baseline \
-            model')
+            logger.info(f'Lang {lang_name} ({lang_code}) is use baseline model')
 
             if os.path.exists(Config.DEFAULT_MODEL_PATH):
                 logger.info(f'Baseline model already exist. Downloading ...')

@@ -1,5 +1,11 @@
 # **Speech tempo models training** 
 
+## **Requirements**
+All necessary requirements placed in `requirements.txt`. Also you need install
+```
+espeak v.1.51
+```
+
 ## **Train and test sets**
 To carry out training and evaluation, it is necessary to place the `train` and `test` sets of the corresponding language in the `dataset` folder. For example, if the Chineese is trained then this folder will be `dataset/test-set/zh-CN.txt` and `dataset/train-set/zh-CN.txt`. If current language is use `baseline model` then instead of `zh-CN.txt` you need to use `en-US.txt` because this is default language of the `baseline model`.
 
