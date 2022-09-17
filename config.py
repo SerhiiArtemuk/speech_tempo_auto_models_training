@@ -19,7 +19,10 @@ class Config:
                     'uk-UA']
 
     # Place here language code wich needed custom models training
-    LANGUAGE_TO_TRAIN = ['zh-CN', 'fr-FR', 'ja-JP', 'af-ZA', 'ca-ES', 'da-DK', 
-    'de-DE', 'fr-CA', 'gu-IN', 'hi-IN', 'id-ID', 'ko-KR', 'lv-LV', 'ml-IN', 
-    'pt-BR', 'pt-PT', 'sr-RS', 'sv-SE', 'ta-IN', 'te-IN', 'th-TH', 'vi-VN',
-    'yue-HK']
+    # LANGUAGE_TO_TRAIN = ['zh-CN', 'fr-FR', 'ja-JP', 'af-ZA', 'ca-ES', 'da-DK', 
+    # 'de-DE', 'fr-CA', 'gu-IN', 'hi-IN', 'id-ID', 'ko-KR', 'lv-LV', 'ml-IN', 
+    # 'pt-BR', 'pt-PT', 'sr-RS', 'sv-SE', 'ta-IN', 'te-IN', 'th-TH', 'vi-VN',
+    # 'yue-HK']
+
+    LANGUAGE_TO_TRAIN = ['zh-CN']
+

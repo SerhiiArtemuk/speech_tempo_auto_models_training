@@ -10,20 +10,18 @@ from sklearn.linear_model import LinearRegression
 import pickle as pkl
 from sklearn.metrics import mean_absolute_percentage_error, r2_score
 
-from tools.convert_to_ipa import convert_to_ipa
-from tools.get_audio_length import get_audio_length
-from tools.transliterate import transliterate, translate
-from google_tts import google_tts_syntesize
+from tools.utils import convert_to_ipa, get_audio_length, transliterate
+from tools.google_tts import google_tts_syntesize
 from config import Config
 
+from logger_tools import setup_logger
+
+logger = setup_logger('train_models_auto')
 
 _CHARACTERS_COUNTER = 0
 _FREE_TTS_CHARACTERS = 1_000_000
-
 IGNORE_CHARS = "?.¿!-?;:,"
-
 ROOT = Config.ROOT
-
 LANG_DICT = pd.read_csv(os.path.join(ROOT, 'look_up.csv'))
 LANG_DICT["transliterate"] = LANG_DICT["transliterate"].isna().apply(lambda x : not(x))
 LANG_DICT = LANG_DICT.dropna()
@@ -129,6 +127,7 @@ def _plot_data(lang_df: pd.DataFrame) -> bool:
     plt.cla()
     plt.clf()
 
+    logger.info(f'Plots saved!')
     return True
 
 def _eval_data(model, lang_name: str, lang_code: str, lang_speaker: str, 
@@ -150,29 +149,21 @@ def _eval_data(model, lang_name: str, lang_code: str, lang_speaker: str,
     """
 
     process = 'evaluate'
-
-    # Stage 3: Evaluate  
-    print("Evaluate...")
     eval_list = []              
     lang_text_file = f"dataset/test-set/{lang_code}.txt"
-
-    print(f"Processing {lang_name} ({lang_code})")
-
-    # Create folder to save evaluation data
     speaker_dir_eval = f"data/evaluate_backup/audio/{lang_code}/{lang_speaker}"
-
     out_df = _prepare_data(process, speaker_dir_eval, lang_text_file, lang_translate, 
                                 lang_speaker, do_translit, lang_ipa)
+
+    logger.info(f"Evaluate model for {lang_code}...")
 
     for i, row in out_df.iterrows():
 
         n_chars = row['n_symbols']
-
         t_true = get_audio_length(row['wav_path'])
         t_pred = model.predict([[n_chars]])[0]
         t_diff = t_true - t_pred
         t_ratio = t_diff / t_true
-
         eval_list.append(
             (lang_name, lang_code, lang_speaker, t_true, t_pred, t_diff, t_ratio, n_chars, row['text'], row['transcription'])
         )
@@ -182,41 +173,38 @@ def _eval_data(model, lang_name: str, lang_code: str, lang_speaker: str,
         columns=("lang_name", "lang_code", "lang_speaker", "t_true", "t_pred", "t_diff", "t_ratio", "n_chars", "text", "text_ipa"),
     )
 
+    logger.info(f'Saving evaluating results ...')
     ev_data_save_path = f"data/evaluate_backup/gen_data_eval"
     os.makedirs(ev_data_save_path, exist_ok=True)
     eval_df.to_csv(ev_data_save_path + f'/out_{lang_code}.csv', index=False)
     
-    summary = []
     error = eval_df["t_ratio"].apply(lambda x : abs(x) * 100.0)
-    mape = mean_absolute_percentage_error(eval_df['t_true'].values, 
-                                            eval_df['t_pred'].values)
-    r2 = r2_score(eval_df['t_true'].values, eval_df['t_pred'].values)
+    r2 = r2_score(eval_df['t_true'].values, eval_df['t_pred'].values) * 100
 
-    summary.append((
+    summary = (
         lang_name,
         error.mean(),
         error.max(),
         error.min(),
         error.std(),
-        mape,
         r2
-    ))
+    )
 
     summary_df = pd.DataFrame(
-    data=summary,
+    data=[summary],
     columns=(
         "language",
         "error_mean",
         "error_max",
         "error_min",
         "error_std",
-        "MAPE",
-        "R2"
+        "R2_score"
     ),
     )
     os.makedirs('data/evaluate_backup/error_csv', exist_ok=True)
-    summary_df.to_csv(f"data/evaluate_backup/error_csv/out_summary_{lang_code}.csv")
-
+    summary_df.to_csv(f"data/evaluate_backup/error_csv/out_summary_{lang_code}.csv",
+                        index=False)
+    logger.info('Evaluation results saved!')
     return eval_df
 
 def _train_data(lang_code: str,  lang_translate: str, lang_speaker: str,
@@ -235,32 +223,28 @@ def _train_data(lang_code: str,  lang_translate: str, lang_speaker: str,
         model (LinearRegression): Linear regression model
     """
     process = 'train'
-    
     train_set_text_file = f'dataset/train-set/{lang_code}.txt'
-
     speaker_dir = f"data/train_data_backup/audio/{lang_code}/{lang_speaker}"
-
     out_df = _prepare_data(process, speaker_dir, train_set_text_file, lang_translate, 
                                 lang_speaker, do_translit, lang_ipa)
-        
     out_train_data_path = f'data/train_data_backup/gen_data_csv/{lang_code}'
     os.makedirs(out_train_data_path, exist_ok=True)
     train_data_filename = out_train_data_path + f"/gen_data_{lang_code}.csv"
-    out_df.to_csv(train_data_filename)
+    out_df.to_csv(train_data_filename, index=False)
 
-    print("Train model...")
-
+    logger.info(f"Train model for {lang_code}")
     X = out_df["n_symbols"].to_numpy()
     X = np.reshape(X, (-1, 1))
     y = out_df["seconds"].to_numpy()
-
     model = LinearRegression().fit(X, y)
 
+    logger.info('Training done. Saving model ...')
     model_path = f'models/linear_regression_{lang_code}'
     os.makedirs(model_path, exist_ok=True)
 
     with open(model_path + '/model.pkl', 'wb') as f:
         pkl.dump(model, f)
+    logger.info(f'Model saved!')
 
     return model
 
@@ -284,6 +268,7 @@ def _prepare_data(process: str, audio_dir: str, data_file: str,
         pd.DataFrame: dataframe with prepared data
     """
 
+    logger.info(f'Start data preparing for {process} process.')
     os.makedirs(audio_dir, exist_ok=True)
     out_data = []
 
@@ -291,7 +276,6 @@ def _prepare_data(process: str, audio_dir: str, data_file: str,
         train_phrases = f.readlines()
 
     for i, text in tqdm.tqdm(enumerate(train_phrases), total=len(train_phrases)):
-        
         text = prepare_text(text)
         wav_path = os.path.join(audio_dir, f"{str(i).zfill(4)}.wav")
 
@@ -303,7 +287,6 @@ def _prepare_data(process: str, audio_dir: str, data_file: str,
             _CHARACTERS_COUNTER += len(text)
 
         if success:
-    
             if do_translit:
                 transliteration = transliterate(text, lang_translate)
                 ipa_text = convert_to_ipa(transliteration, lang="en")
@@ -311,7 +294,6 @@ def _prepare_data(process: str, audio_dir: str, data_file: str,
                 ipa_text = convert_to_ipa(text, lang=lang_ipa)
 
             seconds = get_audio_length(wav_path)
-
             out_data.append((seconds, len(ipa_text), ipa_text, text, wav_path))
     out_df = pd.DataFrame(out_data, columns=("seconds", "n_symbols", "transcription", "text", "wav_path"))
     return out_df
@@ -320,41 +302,45 @@ def main():
 
     global _CHARACTERS_COUNTER
 
-    for idx, row in LANG_DICT.iterrows():
+    logger.info(f'Start automatic train process for languages: {Config.LANGUAGE_TO_TRAIN}')
 
-        lang_ipa = row["language_ipa"]
-        lang_name = row["language_name"]
-        lang_code = row["language_code"]
-        lang_speaker = row["google_speaker"]
-        do_translit= row["transliterate"]
-        lang_translate = row["language_translate"]
+    for l in Config.LANGUAGE_TO_TRAIN:
 
-        # Check if lang in models list
-        if lang_code not in Config.LANGUAGE_TO_TRAIN:
-            print(f'Lang code {lang_code} not in models list. Continue ...')
+        logger.info(f'Current processed lang: {l}')
+        if l not in LANG_DICT['language_code'].tolist():
+            logger.info(f'Lang code {lang_code} not in look up table. Skipping ...')
             continue
+        
+        processed_row = LANG_DICT[LANG_DICT['language_code'] == l]
+        lang_ipa = processed_row["language_ipa"].values[0]
+        lang_name = processed_row["language_name"].values[0]
+        lang_code = processed_row["language_code"].values[0]
+        lang_speaker = processed_row["google_speaker"].values[0]
+        do_translit= processed_row["transliterate"].values[0]
+        lang_translate = processed_row["language_translate"].values[0]
 
-        print(f'Processed: {lang_name}, {lang_code}, {lang_speaker}')
-        print(f'Need transliteration? -> {do_translit}')
+        logger.info('Start training!')
+        logger.info(f'Use transliteration for {lang_name}? -> {do_translit}')
 
         # Stage 1: Train
         if lang_code not in Config.BASELINE_LANGS:
-
+            logger.info(f'Lang {lang_name} ({lang_code}) doesn`t use baseline model. Train custom!')
             model = _train_data(lang_code=lang_code,
                                 lang_translate=lang_translate,
                                 lang_speaker=lang_speaker,
                                 do_translit=do_translit,
                                 lang_ipa=lang_ipa) 
         else:
+            logger.info(f'Lang {lang_name} ({lang_code}) is use baseline \
+            model')
 
             if os.path.exists(Config.DEFAULT_MODEL_PATH):
-
+                logger.info(f'Baseline model already exist. Downloading ...')
                 with open(Config.DEFAULT_MODEL_PATH, 'rb') as f_model:
                     model = pickle.load(f_model)
             else:
-                
+                logger.info(f'Baseline model doesn`t exist. Training ...')
                 baseline_row = LANG_DICT[LANG_DICT['language_code'] == Config.DEFAULT_MODEL_LANG_CODE]
-                
                 model = _train_data(lang_code=baseline_row['language_code'].values[0],
                                 lang_translate=baseline_row['language_translate'].values[0],
                                 lang_speaker=baseline_row['google_speaker'].values[0],
@@ -362,6 +348,7 @@ def main():
                                 lang_ipa=baseline_row['language_ipa'].values[0])
 
         # Stage 2: Evaluate
+        logger.info(f'Evaluating model for {lang_name} ({lang_code})')
         eval_df = _eval_data(model=model,
                             lang_name=lang_name,
                             lang_code=lang_code,
@@ -371,23 +358,22 @@ def main():
                             lang_translate=lang_translate)
 
         # Stage 3: Plot Results
+        logger.info(f'Plotting evaluating result ...')
         _plot_data(eval_df)
         
         # Checking whether the number of used symbols does not exceed 
         # the number of free TTS symbols 
-        print(f'Train, Evaluate, Plot for {lang_name} -> done!')
-        print(f'Spend characters for TTS: {_CHARACTERS_COUNTER}')
+        logger.info(f'Train, Evaluate and Plot processes for {lang_name} -> done!')
+        logger.info(f'Spend characters for TTS: {_CHARACTERS_COUNTER}')
         if int(_CHARACTERS_COUNTER) >= (_FREE_TTS_CHARACTERS - 200_000):
-            print('Ran out of free symbols for TTS. Continue? y/N')
-            decision = input()
+            decision = input('Ran out of free symbols for TTS. Continue? y/N')
             if decision.lower() == 'y':
                 continue
             else:
                 break
-        print('-------------------------------------------------------------')
+        logger.info('-------------------------------------------------------------')
 
-    print("Done!")
-
+    logger.info(f"Automate training successfully finished!")
 
 if __name__ == "__main__":
     main()
