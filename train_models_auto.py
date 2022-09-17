@@ -3,17 +3,14 @@ import tqdm
 import shutil
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import pickle
-from pathlib import Path
-from sklearn.linear_model import LinearRegression
 import pickle as pkl
-from sklearn.metrics import mean_absolute_percentage_error, r2_score
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
 
+from config import Config
 from tools.utils import convert_to_ipa, get_audio_length, transliterate
 from tools.google_tts import google_tts_syntesize
-from config import Config
-
 from logger_tools import setup_logger
 
 logger = setup_logger('train_models_auto')
@@ -337,7 +334,7 @@ def main():
             if os.path.exists(Config.DEFAULT_MODEL_PATH):
                 logger.info(f'Baseline model already exist. Downloading ...')
                 with open(Config.DEFAULT_MODEL_PATH, 'rb') as f_model:
-                    model = pickle.load(f_model)
+                    model = pkl.load(f_model)
             else:
                 logger.info(f'Baseline model doesn`t exist. Training ...')
                 baseline_row = LANG_DICT[LANG_DICT['language_code'] == Config.DEFAULT_MODEL_LANG_CODE]

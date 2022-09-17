@@ -1,6 +1,6 @@
+import subprocess
 from googletrans import Translator
 import soundfile as sf
-import subprocess
 from shlex import quote
 
 translator = Translator()

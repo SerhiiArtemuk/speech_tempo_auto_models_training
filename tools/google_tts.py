@@ -1,9 +1,9 @@
-import requests as re
-from requests.structures import CaseInsensitiveDict
 import base64
 import subprocess
 import os
+import requests as re
 from config import Config
+from requests.structures import CaseInsensitiveDict
 
 _API_KEY = Config.TTS_API_KEY
 _API_NAME = Config.TTS_API_NAME
